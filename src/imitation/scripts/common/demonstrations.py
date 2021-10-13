@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 @demonstrations_ingredient.config
 def config():
     # Demonstrations
-    data_dir = "data/"
+    data_dir = "tests/testdata/"
     rollout_path = None  # path to file containing rollouts
     n_expert_demos = None  # Num demos used. None uses every demo possible
 

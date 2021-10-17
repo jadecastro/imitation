@@ -56,7 +56,7 @@ ANT_SHARED_LOCALS = dict(
 
 @train_adversarial_ex.named_config
 def acrobot():
-    env_name = "Acrobot-v1"
+    common = dict(env_name="Acrobot-v1")
     algorithm_kwargs = {"allow_variable_horizon": True}
 
 

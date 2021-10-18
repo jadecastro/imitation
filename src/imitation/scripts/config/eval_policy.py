@@ -1,6 +1,7 @@
 """Configuration settings for eval_policy, evaluating pre-trained policies."""
 
 import sacred
+import highway_env
 
 from imitation.scripts.common import common
 
@@ -33,6 +34,11 @@ def replay_defaults():
 def render():
     common = dict(num_vec=1, parallel=False)
     render = True
+
+
+@eval_policy_ex.named_config
+def highway_fast():
+    common = dict(env_name="highway-fast-v0")
 
 
 @eval_policy_ex.named_config

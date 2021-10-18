@@ -1,6 +1,7 @@
 """Configuration settings for train_rl, training a policy with RL."""
 
 import sacred
+import highway_env
 
 from imitation.scripts.common import common, rl, train
 
@@ -38,6 +39,11 @@ def default_end_cond(rollout_save_n_timesteps, rollout_save_n_episodes):
 
 
 # Standard Gym env configs
+
+
+@train_rl_ex.named_config
+def highway_fast():
+    common = dict(env_name="highway-fast-v0")
 
 
 @train_rl_ex.named_config

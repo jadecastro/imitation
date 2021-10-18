@@ -1,6 +1,7 @@
 """Configuration for imitation.scripts.train_adversarial."""
 
 import sacred
+import highway_env
 
 from imitation.rewards import reward_nets
 from imitation.scripts.common import common, demonstrations, reward, rl, train
@@ -52,6 +53,12 @@ ANT_SHARED_LOCALS = dict(
 
 
 # Classic RL Gym environment named configs
+
+
+@train_adversarial_ex.named_config
+def highway_fast():
+    common = dict(env_name="highway-fast-v0")
+    algorithm_kwargs = {"allow_variable_horizon": True}
 
 
 @train_adversarial_ex.named_config

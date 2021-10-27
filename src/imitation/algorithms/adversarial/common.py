@@ -4,7 +4,7 @@ import collections
 import dataclasses
 import logging
 import os
-from typing import Callable, Iterator, Mapping, Optional, Sequence, Tuple, Type
+from typing import Callable, Dict, Iterator, Mapping, Optional, Sequence, Tuple, Type
 
 import numpy as np
 import torch as th
@@ -126,6 +126,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
         init_tensorboard_graph: bool = False,
         debug_use_ground_truth: bool = False,
         allow_variable_horizon: bool = False,
+        loss_coeffs: Dict = None,
     ):
         """Builds AdversarialTrainer.
 
@@ -174,6 +175,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                 condition, and can seriously confound evaluation. Read
                 https://imitation.readthedocs.io/en/latest/guide/variable_horizon.html
                 before overriding this.
+            loss_coeffs: A dict of coefficients for the loss terms for PEMIRL.
         """
         self.demo_batch_size = demo_batch_size
         self._demo_data_loader = None
@@ -249,6 +251,10 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
             gen_replay_buffer_capacity,
             self.venv,
         )
+
+        if loss_coeffs is None:
+            loss_coeffs = dict('info': 1.0)
+        self.loss_coeffs = loss_coeffs
 
     @property
     def policy(self) -> policies.BasePolicy:
@@ -359,7 +365,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                 gen_samples=gen_samples,
                 expert_samples=expert_samples,
             )
-            disc_logits = self.logits_gen_is_high(
+            disc_logits, reward = self.logits_gen_is_high(
                 batch["state"],
                 batch["action"],
                 batch["next_state"],
@@ -371,9 +377,24 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                 batch["labels_gen_is_one"].float(),
             )
 
-            
+            log_q_m_tau = self.context_encoder_log_likelihood(
+                batch["state"],
+                batch["action"],
+                batch["next_state"],
+                batch["done"],
+            )
 
-            loss = cent_loss + info_coeff * info_loss
+            sampled_traj_return = th.sum(
+                th.reshape(reward, [meta_batch_size, -1, self.T], dim=-1, keepdim=True)
+            )
+            info_loss = th.mean(
+                (1 - batch["labels_gen_is_one"].float()) * log_q_m_tau * sampled_traj_return -
+                (1 - batch["labels_gen_is_one"].float()) * log_q_m_tau *
+                th.mean(sampled_traj_return * (1 - batch["labels_gen_is_one"].float()), dim=1, keepdim=True) /
+                th.mean(1 - batch["labels_gen_is_one"].float())
+            ) / th.mean(1 - batch["labels_gen_is_one"].float())
+
+            loss = cent_loss + self.loss_coeffs['info'] * info_loss
 
             # do gradient step
             self._disc_opt.zero_grad()

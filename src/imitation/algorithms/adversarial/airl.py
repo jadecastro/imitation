@@ -136,7 +136,7 @@ class AIRL(common.AdversarialTrainer):
         # original AIRL discriminator expression with reversed logits to match
         # our convention of low = expert and high = generator (like GAIL).
 
-        return log_policy_act_prob - reward_output_train
+        return log_policy_act_prob - reward_output_train, reward_output_train
 
     def reparameterize(self, mu, log_std):
         eps = torch.randn_like(mean)
@@ -164,7 +164,7 @@ class AIRL(common.AdversarialTrainer):
         dist = Independent(dist, 1)
         log_q_m_tau = normal_dist.log_prob(reparam_latent)
 
-        return context_output_train
+        return log_q_m_tau
 
     @property
     def reward_train(self) -> reward_nets.RewardNet:

@@ -282,6 +282,30 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
             generator-like transition.
         """  # noqa: DAR202
 
+    @abc.abstractmethod
+    def context_encoder_log_likelihood(
+        self,
+        state: th.Tensor,
+        action: th.Tensor,
+        next_state: th.Tensor,
+        done: th.Tensor,
+    ) -> th.Tensor:
+        """Compute the discriminator's logits for each state-action sample.
+
+        A high value corresponds to predicting generator, and a low value corresponds to
+        predicting expert.
+
+        Args:
+            state: state at time t, of shape `(batch_size,) + state_shape`.
+            action: action taken at time t, of shape `(batch_size,) + action_shape`.
+            next_state: state at time t+1, of shape `(batch_size,) + state_shape`.
+            done: binary episode completion flag after action at time t,
+                of shape `(batch_size,)`.
+
+        Returns:
+            log-likelihood of shape `(batch_size,)`.
+        """  # noqa: DAR202
+
     @property
     @abc.abstractmethod
     def reward_train(self) -> reward_nets.RewardNet:
@@ -342,10 +366,14 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                 batch["done"],
                 batch["log_policy_act_prob"],
             )
-            loss = F.binary_cross_entropy_with_logits(
+            cent_loss = F.binary_cross_entropy_with_logits(
                 disc_logits,
                 batch["labels_gen_is_one"].float(),
             )
+
+            
+
+            loss = cent_loss + info_coeff * info_loss
 
             # do gradient step
             self._disc_opt.zero_grad()

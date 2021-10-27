@@ -3,11 +3,45 @@
 from typing import Optional
 
 import torch as th
+from torch.distributions import Normal
+from torch.distributions.independent import Independent
 from stable_baselines3.common import base_class, vec_env
 
 from imitation.algorithms import base
 from imitation.algorithms.adversarial import common
 from imitation.rewards import reward_nets
+from imitation.util import networks
+
+
+class ContextEncoderNet(th.nn.Module):
+    """Simple implementation of a potential using an MLP."""
+
+    def __init__(self, observation_space: gym.Space, hid_sizes: Iterable[int]):
+        """Initialize the potential.
+
+        Args:
+            observation_space: observation space of the environment.
+            hid_sizes: widths of the hidden layers of the MLP.
+        """
+        super().__init__()
+        input_size = preprocessing.get_flattened_obs_dim(observation_space)
+        self._mean_net = networks.build_mlp(
+            in_size=input_size,
+            hid_sizes=hid_sizes,
+            squeeze_output=True,
+            flatten_input=True,
+        )
+        self._std_net = networks.build_mlp(
+            in_size=input_size,
+            hid_sizes=hid_sizes,
+            squeeze_output=True,
+            flatten_input=True,
+        )
+
+    def forward(self, state: th.Tensor) -> th.Tensor:
+        mean = self._mean_net(state)
+        log_std = self._std_net(state)
+        return mean, log_std
 
 
 class AIRL(common.AdversarialTrainer):
@@ -24,6 +58,7 @@ class AIRL(common.AdversarialTrainer):
         venv: vec_env.VecEnv,
         gen_algo: base_class.BaseAlgorithm,
         reward_net: Optional[reward_nets.RewardNet] = None,
+        context_encoder_net: Optional[th.nn.Module] = None,
         **kwargs,
     ):
         """Builds an AIRL trainer.
@@ -55,12 +90,18 @@ class AIRL(common.AdversarialTrainer):
                 action_space=venv.action_space,
             )
         self._reward_net = reward_net
+        if context_encoder_net is None:
+            context_encoder_net = ContextEncoderNet(
+                observation_space=venv.observation_space,
+                action_space=venv.action_space,
+            )
+        self._context_encoder_net = context_encoder_net
         super().__init__(
             demonstrations=demonstrations,
             demo_batch_size=demo_batch_size,
             venv=venv,
             gen_algo=gen_algo,
-            disc_parameters=self._reward_net.parameters(),
+            disc_parameters=self._reward_net.parameters() + self._enc_net.parameters(),
             **kwargs,
         )
         if not hasattr(self.gen_algo.policy, "evaluate_actions"):
@@ -68,6 +109,7 @@ class AIRL(common.AdversarialTrainer):
                 "AIRL needs a stochastic policy to compute the discriminator output.",
             )
 
+    # *** TODO *** Add context variable 
     def logits_gen_is_high(
         self,
         state: th.Tensor,
@@ -93,7 +135,36 @@ class AIRL(common.AdversarialTrainer):
         # exp(r(s,a)), we get pi(a|s) / (pi(a|s) + exp(r(s,a))). This is the
         # original AIRL discriminator expression with reversed logits to match
         # our convention of low = expert and high = generator (like GAIL).
+
         return log_policy_act_prob - reward_output_train
+
+    def reparameterize(self, mu, log_std):
+        eps = torch.randn_like(mean)
+        return mean + torch.exp(0.5 * log_std) * eps
+    
+    def kld(self, mean, log_std):
+        return -0.5 * torch.sum(1 + log_std - mean.pow(2) - log_std.exp())
+    
+    def context_encoder_log_likelihood(
+        self,
+        state: th.Tensor,
+        action: th.Tensor,
+        next_state: th.Tensor,
+        done: th.Tensor,
+    ) -> th.Tensor:
+        # Note: We're inputting the expert trajectory.
+        mean_context, log_std_context = self._context_encoder_net(state, action, next_state, done)
+
+        # Reparameterization step
+        # kld = self.kld(mean_context, log_std_context)
+        reparam_latent = self.reparameterize(mean_context, log_std_context)  # [num_episodes, latent_dim]
+        normal_dist = Normal(mean_context, log_std_context)
+        # Makes it so that a sample from the distribution is treated as a
+        # single sample and not dist.batch_shape samples.
+        dist = Independent(dist, 1)
+        log_q_m_tau = normal_dist.log_prob(reparam_latent)
+
+        return context_output_train
 
     @property
     def reward_train(self) -> reward_nets.RewardNet:

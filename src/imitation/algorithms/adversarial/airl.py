@@ -1,11 +1,12 @@
 """Adversarial Inverse Reinforcement Learning (AIRL)."""
 
-from typing import Optional
+import gym
+from typing import Iterable, Optional, Tuple
 
 import torch as th
 from torch.distributions import Normal
 from torch.distributions.independent import Independent
-from stable_baselines3.common import base_class, vec_env
+from stable_baselines3.common import base_class, preprocessing, vec_env
 
 from imitation.algorithms import base
 from imitation.algorithms.adversarial import common
@@ -16,31 +17,95 @@ from imitation.util import networks
 class ContextEncoderNet(th.nn.Module):
     """Simple implementation of a potential using an MLP."""
 
-    def __init__(self, observation_space: gym.Space, hid_sizes: Iterable[int]):
-        """Initialize the potential.
+    """MLP that takes as input the state, action, next state and done flag.
+
+    These inputs are flattened and then concatenated to one another. Each input
+    can enabled or disabled by the `use_*` constructor keyword arguments.
+    """
+
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        use_state: bool = True,
+        use_action: bool = True,
+        use_next_state: bool = False,
+        use_done: bool = False,
+        **kwargs,
+    ):
+        """Builds reward MLP.
 
         Args:
-            observation_space: observation space of the environment.
-            hid_sizes: widths of the hidden layers of the MLP.
+            observation_space: The observation space.
+            action_space: The action space.
+            use_state: should the current state be included as an input to the MLP?
+            use_action: should the current action be included as an input to the MLP?
+            use_next_state: should the next state be included as an input to the MLP?
+            use_done: should the "done" flag be included as an input to the MLP?
+            kwargs: passed straight through to `build_mlp`.
         """
         super().__init__()
-        input_size = preprocessing.get_flattened_obs_dim(observation_space)
+        self.observation_space = observation_space
+        self.action_space = action_space
+        combined_size = 0
+
+        self.use_state = use_state
+        if self.use_state:
+            combined_size += preprocessing.get_flattened_obs_dim(observation_space)
+
+        self.use_action = use_action
+        if self.use_action:
+            combined_size += preprocessing.get_flattened_obs_dim(action_space)
+
+        self.use_next_state = use_next_state
+        if self.use_next_state:
+            combined_size += preprocessing.get_flattened_obs_dim(observation_space)
+
+        self.use_done = use_done
+        if self.use_done:
+            combined_size += 1
+
+        # Build MLPs for mean and log-std.
+        # Note that the MetaIRL repo uses a GaussianMLPPolicy from rllab's sandbox.rocky.tf.policies.
+        # Their input is expert_traj_var, of dimension [meta_batch_size, batch_size, T, dO+dU]
+        # They also provide a placeholder to make it a recurrent net.
+        # TODO(jon): do we want a recurrent net here?
         self._mean_net = networks.build_mlp(
-            in_size=input_size,
-            hid_sizes=hid_sizes,
+            in_size=combined_size,
+            out_size=1,
+            hid_sizes=(32, 32),
             squeeze_output=True,
             flatten_input=True,
         )
-        self._std_net = networks.build_mlp(
-            in_size=input_size,
-            hid_sizes=hid_sizes,
+        self._log_std_net = networks.build_mlp(
+            in_size=combined_size,
+            out_size=1,
+            hid_sizes=(32, 32),
             squeeze_output=True,
             flatten_input=True,
         )
 
-    def forward(self, state: th.Tensor) -> th.Tensor:
-        mean = self._mean_net(state)
-        log_std = self._std_net(state)
+    def forward(
+            self,
+            state: th.Tensor,
+            action: th.Tensor,
+            next_state: th.Tensor,
+            done: th.Tensor
+    ) -> Tuple[th.Tensor, th.Tensor]:
+        inputs = []
+        if self.use_state:
+            inputs.append(th.flatten(state, 1))
+        if self.use_action:
+            inputs.append(th.flatten(action, 1))
+        if self.use_next_state:
+            inputs.append(th.flatten(next_state, 1))
+        if self.use_done:
+            inputs.append(th.reshape(done, [-1, 1]))
+
+        inputs_concat = th.cat(inputs, dim=1)
+
+        mean = self._mean_net(inputs_concat)
+        log_std = self._log_std_net(inputs_concat)
         return mean, log_std
 
 
@@ -101,7 +166,7 @@ class AIRL(common.AdversarialTrainer):
             demo_batch_size=demo_batch_size,
             venv=venv,
             gen_algo=gen_algo,
-            disc_parameters=self._reward_net.parameters() + self._enc_net.parameters(),
+            disc_parameters=self._reward_net.parameters() + self._context_encoder_net.parameters(),
             **kwargs,
         )
         if not hasattr(self.gen_algo.policy, "evaluate_actions"):
@@ -117,7 +182,8 @@ class AIRL(common.AdversarialTrainer):
         next_state: th.Tensor,
         done: th.Tensor,
         log_policy_act_prob: th.Tensor,
-    ) -> th.Tensor:
+        reparam_latent: th.Tensor,
+    ) -> Tuple[th.Tensor, th.Tensor]:
         """Compute the discriminator's logits for each state-action sample."""
         if log_policy_act_prob is None:
             raise TypeError(
@@ -151,7 +217,7 @@ class AIRL(common.AdversarialTrainer):
         action: th.Tensor,
         next_state: th.Tensor,
         done: th.Tensor,
-    ) -> th.Tensor:
+    ) -> Tuple[th.Tensor, th.Tensor]:
         # Note: We're inputting the expert trajectory.
         mean_context, log_std_context = self._context_encoder_net(state, action, next_state, done)
 
@@ -164,7 +230,7 @@ class AIRL(common.AdversarialTrainer):
         dist = Independent(dist, 1)
         log_q_m_tau = normal_dist.log_prob(reparam_latent)
 
-        return log_q_m_tau
+        return log_q_m_tau, reparam_latent
 
     @property
     def reward_train(self) -> reward_nets.RewardNet:

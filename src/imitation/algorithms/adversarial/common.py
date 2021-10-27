@@ -253,7 +253,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
         )
 
         if loss_coeffs is None:
-            loss_coeffs = dict('info': 1.0)
+            loss_coeffs = dict(info=1.0)
         self.loss_coeffs = loss_coeffs
 
     @property
@@ -365,23 +365,25 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                 gen_samples=gen_samples,
                 expert_samples=expert_samples,
             )
+
+            log_q_m_tau, reparam_latent = self.context_encoder_log_likelihood(
+                batch["state"],
+                batch["action"],
+                batch["next_state"],
+                batch["done"],
+            )
+
             disc_logits, reward = self.logits_gen_is_high(
                 batch["state"],
                 batch["action"],
                 batch["next_state"],
                 batch["done"],
                 batch["log_policy_act_prob"],
+                reparam_latent,
             )
             cent_loss = F.binary_cross_entropy_with_logits(
                 disc_logits,
                 batch["labels_gen_is_one"].float(),
-            )
-
-            log_q_m_tau = self.context_encoder_log_likelihood(
-                batch["state"],
-                batch["action"],
-                batch["next_state"],
-                batch["done"],
             )
 
             sampled_traj_return = th.sum(

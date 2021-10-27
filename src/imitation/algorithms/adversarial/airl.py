@@ -208,9 +208,10 @@ class AIRL(common.AdversarialTrainer):
 
     def reparameterize(self, mean, log_std):
         eps = th.randn_like(mean)
-        return mean + th.exp(0.5 * log_std) * eps
+        return mean + th.exp(log_std) * eps
     
     def kld(self, mean, log_std):
+        # Note: original formulation was for log_var - we're using log_std below.
         return -0.5 * th.sum(1 + log_std - mean.pow(2) - log_std.exp())
     
     def context_encoder_log_likelihood(
@@ -226,10 +227,11 @@ class AIRL(common.AdversarialTrainer):
         # Reparameterization step
         # kld = self.kld(mean_context, log_std_context)
         reparam_latent = self.reparameterize(mean_context, log_std_context)  # [num_episodes, latent_dim]
-        normal_dist = Normal(mean_context, log_std_context)
+        std_context = th.exp(log_std_context)
+        normal_dist = Normal(mean_context, std_context)
         # Makes it so that a sample from the distribution is treated as a
         # single sample and not dist.batch_shape samples.
-        dist = Independent(dist, 1)
+        normal_dist = Independent(normal_dist, 1)
         log_q_m_tau = normal_dist.log_prob(reparam_latent)
 
         return log_q_m_tau, reparam_latent

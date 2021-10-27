@@ -386,13 +386,24 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                 batch["labels_gen_is_one"].float(),
             )
 
-            sampled_traj_return = th.sum(
-                th.reshape(reward, [meta_batch_size, -1, self.T], dim=-1, keepdim=True)
-            )
+            # sampled_traj_return = th.sum(
+            #     th.reshape(reward, [meta_batch_size, -1, self.T], dim=-1, keepdim=True)
+            # )
+            # sampled_traj_return = th.sum(reward)
+            sampled_traj_return = reward
+            print(disc_logits)
+            print(sampled_traj_return)
+            print(th.mean(sampled_traj_return * (1 - batch["labels_gen_is_one"].float())))
+            # info_loss = th.mean(
+            #     (1 - batch["labels_gen_is_one"].float()) * log_q_m_tau * sampled_traj_return -
+            #     (1 - batch["labels_gen_is_one"].float()) * log_q_m_tau *
+            #     th.mean(sampled_traj_return * (1 - batch["labels_gen_is_one"].float()), dim=1, keepdim=True) /
+            #     th.mean(1 - batch["labels_gen_is_one"].float())
+            # ) / th.mean(1 - batch["labels_gen_is_one"].float())
             info_loss = th.mean(
                 (1 - batch["labels_gen_is_one"].float()) * log_q_m_tau * sampled_traj_return -
                 (1 - batch["labels_gen_is_one"].float()) * log_q_m_tau *
-                th.mean(sampled_traj_return * (1 - batch["labels_gen_is_one"].float()), dim=1, keepdim=True) /
+                th.mean(sampled_traj_return * (1 - batch["labels_gen_is_one"].float())) /
                 th.mean(1 - batch["labels_gen_is_one"].float())
             ) / th.mean(1 - batch["labels_gen_is_one"].float())
 

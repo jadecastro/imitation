@@ -161,12 +161,14 @@ class AIRL(common.AdversarialTrainer):
                 action_space=venv.action_space,
             )
         self._context_encoder_net = context_encoder_net
+        print(self._reward_net.parameters())
+        print(self._context_encoder_net.parameters())
         super().__init__(
             demonstrations=demonstrations,
             demo_batch_size=demo_batch_size,
             venv=venv,
             gen_algo=gen_algo,
-            disc_parameters=self._reward_net.parameters() + self._context_encoder_net.parameters(),
+            disc_parameters=list(self._reward_net.parameters()) + list(self._context_encoder_net.parameters()),
             **kwargs,
         )
         if not hasattr(self.gen_algo.policy, "evaluate_actions"):
@@ -204,12 +206,12 @@ class AIRL(common.AdversarialTrainer):
 
         return log_policy_act_prob - reward_output_train, reward_output_train
 
-    def reparameterize(self, mu, log_std):
-        eps = torch.randn_like(mean)
-        return mean + torch.exp(0.5 * log_std) * eps
+    def reparameterize(self, mean, log_std):
+        eps = th.randn_like(mean)
+        return mean + th.exp(0.5 * log_std) * eps
     
     def kld(self, mean, log_std):
-        return -0.5 * torch.sum(1 + log_std - mean.pow(2) - log_std.exp())
+        return -0.5 * th.sum(1 + log_std - mean.pow(2) - log_std.exp())
     
     def context_encoder_log_likelihood(
         self,

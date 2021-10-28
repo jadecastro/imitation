@@ -12,6 +12,7 @@ from sacred.observers import FileStorageObserver
 from imitation.algorithms.adversarial import airl as airl_algo
 from imitation.algorithms.adversarial import common
 from imitation.algorithms.adversarial import gail as gail_algo
+from imitation.algorithms.adversarial import pemirl as pemirl_algo
 from imitation.data import rollout
 from imitation.policies import serialize
 from imitation.scripts.common import common as common_config
@@ -158,6 +159,11 @@ def gail():
 @train_adversarial_ex.command
 def airl():
     return train_adversarial(algo_cls=airl_algo.AIRL)
+
+
+@train_adversarial_ex.command
+def pemirl():
+    return train_adversarial(algo_cls=pemirl_algo.PEMIRL)
 
 
 def main_console():

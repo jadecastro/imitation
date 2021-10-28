@@ -1,112 +1,13 @@
 """Adversarial Inverse Reinforcement Learning (AIRL)."""
 
-import gym
-from typing import Iterable, Optional, Tuple
+from typing import Optional
 
 import torch as th
-from torch.distributions import Normal
-from torch.distributions.independent import Independent
-from stable_baselines3.common import base_class, preprocessing, vec_env
+from stable_baselines3.common import base_class, vec_env
 
 from imitation.algorithms import base
 from imitation.algorithms.adversarial import common
 from imitation.rewards import reward_nets
-from imitation.util import networks
-
-
-class ContextEncoderNet(th.nn.Module):
-    """Simple implementation of a potential using an MLP."""
-
-    """MLP that takes as input the state, action, next state and done flag.
-
-    These inputs are flattened and then concatenated to one another. Each input
-    can enabled or disabled by the `use_*` constructor keyword arguments.
-    """
-
-    def __init__(
-        self,
-        observation_space: gym.Space,
-        action_space: gym.Space,
-        use_state: bool = True,
-        use_action: bool = True,
-        use_next_state: bool = False,
-        use_done: bool = False,
-        **kwargs,
-    ):
-        """Builds reward MLP.
-
-        Args:
-            observation_space: The observation space.
-            action_space: The action space.
-            use_state: should the current state be included as an input to the MLP?
-            use_action: should the current action be included as an input to the MLP?
-            use_next_state: should the next state be included as an input to the MLP?
-            use_done: should the "done" flag be included as an input to the MLP?
-            kwargs: passed straight through to `build_mlp`.
-        """
-        super().__init__()
-        self.observation_space = observation_space
-        self.action_space = action_space
-        combined_size = 0
-
-        self.use_state = use_state
-        if self.use_state:
-            combined_size += preprocessing.get_flattened_obs_dim(observation_space)
-
-        self.use_action = use_action
-        if self.use_action:
-            combined_size += preprocessing.get_flattened_obs_dim(action_space)
-
-        self.use_next_state = use_next_state
-        if self.use_next_state:
-            combined_size += preprocessing.get_flattened_obs_dim(observation_space)
-
-        self.use_done = use_done
-        if self.use_done:
-            combined_size += 1
-
-        # Build MLPs for mean and log-std.
-        # Note that the MetaIRL repo uses a GaussianMLPPolicy from rllab's sandbox.rocky.tf.policies.
-        # Their input is expert_traj_var, of dimension [meta_batch_size, batch_size, T, dO+dU]
-        # They also provide a placeholder to make it a recurrent net.
-        # TODO(jon): do we want a recurrent net here?
-        self._mean_net = networks.build_mlp(
-            in_size=combined_size,
-            out_size=1,
-            hid_sizes=(32, 32),
-            squeeze_output=True,
-            flatten_input=True,
-        )
-        self._log_std_net = networks.build_mlp(
-            in_size=combined_size,
-            out_size=1,
-            hid_sizes=(32, 32),
-            squeeze_output=True,
-            flatten_input=True,
-        )
-
-    def forward(
-            self,
-            state: th.Tensor,
-            action: th.Tensor,
-            next_state: th.Tensor,
-            done: th.Tensor
-    ) -> Tuple[th.Tensor, th.Tensor]:
-        inputs = []
-        if self.use_state:
-            inputs.append(th.flatten(state, 1))
-        if self.use_action:
-            inputs.append(th.flatten(action, 1))
-        if self.use_next_state:
-            inputs.append(th.flatten(next_state, 1))
-        if self.use_done:
-            inputs.append(th.reshape(done, [-1, 1]))
-
-        inputs_concat = th.cat(inputs, dim=1)
-
-        mean = self._mean_net(inputs_concat)
-        log_std = self._log_std_net(inputs_concat)
-        return mean, log_std
 
 
 class AIRL(common.AdversarialTrainer):
@@ -123,7 +24,6 @@ class AIRL(common.AdversarialTrainer):
         venv: vec_env.VecEnv,
         gen_algo: base_class.BaseAlgorithm,
         reward_net: Optional[reward_nets.RewardNet] = None,
-        context_encoder_net: Optional[th.nn.Module] = None,
         **kwargs,
     ):
         """Builds an AIRL trainer.
@@ -155,20 +55,12 @@ class AIRL(common.AdversarialTrainer):
                 action_space=venv.action_space,
             )
         self._reward_net = reward_net
-        if context_encoder_net is None:
-            context_encoder_net = ContextEncoderNet(
-                observation_space=venv.observation_space,
-                action_space=venv.action_space,
-            )
-        self._context_encoder_net = context_encoder_net
-        print(self._reward_net.parameters())
-        print(self._context_encoder_net.parameters())
         super().__init__(
             demonstrations=demonstrations,
             demo_batch_size=demo_batch_size,
             venv=venv,
             gen_algo=gen_algo,
-            disc_parameters=list(self._reward_net.parameters()) + list(self._context_encoder_net.parameters()),
+            disc_parameters=self._reward_net.parameters(),
             **kwargs,
         )
         if not hasattr(self.gen_algo.policy, "evaluate_actions"):
@@ -176,7 +68,6 @@ class AIRL(common.AdversarialTrainer):
                 "AIRL needs a stochastic policy to compute the discriminator output.",
             )
 
-    # *** TODO *** Add context variable 
     def logits_gen_is_high(
         self,
         state: th.Tensor,
@@ -184,8 +75,7 @@ class AIRL(common.AdversarialTrainer):
         next_state: th.Tensor,
         done: th.Tensor,
         log_policy_act_prob: th.Tensor,
-        reparam_latent: th.Tensor,
-    ) -> Tuple[th.Tensor, th.Tensor]:
+    ) -> th.Tensor:
         """Compute the discriminator's logits for each state-action sample."""
         if log_policy_act_prob is None:
             raise TypeError(
@@ -203,38 +93,7 @@ class AIRL(common.AdversarialTrainer):
         # exp(r(s,a)), we get pi(a|s) / (pi(a|s) + exp(r(s,a))). This is the
         # original AIRL discriminator expression with reversed logits to match
         # our convention of low = expert and high = generator (like GAIL).
-
-        return log_policy_act_prob - reward_output_train, reward_output_train
-
-    def reparameterize(self, mean, log_std):
-        eps = th.randn_like(mean)
-        return mean + th.exp(log_std) * eps
-    
-    def kld(self, mean, log_std):
-        # Note: original formulation was for log_var - we're using log_std below.
-        return -0.5 * th.sum(1 + log_std - mean.pow(2) - log_std.exp())
-    
-    def context_encoder_log_likelihood(
-        self,
-        state: th.Tensor,
-        action: th.Tensor,
-        next_state: th.Tensor,
-        done: th.Tensor,
-    ) -> Tuple[th.Tensor, th.Tensor]:
-        # Note: We're inputting the expert trajectory.
-        mean_context, log_std_context = self._context_encoder_net(state, action, next_state, done)
-
-        # Reparameterization step
-        # kld = self.kld(mean_context, log_std_context)
-        reparam_latent = self.reparameterize(mean_context, log_std_context)  # [num_episodes, latent_dim]
-        std_context = th.exp(log_std_context)
-        normal_dist = Normal(mean_context, std_context)
-        # Makes it so that a sample from the distribution is treated as a
-        # single sample and not dist.batch_shape samples.
-        normal_dist = Independent(normal_dist, 1)
-        log_q_m_tau = normal_dist.log_prob(reparam_latent)
-
-        return log_q_m_tau, reparam_latent
+        return log_policy_act_prob - reward_output_train
 
     @property
     def reward_train(self) -> reward_nets.RewardNet:

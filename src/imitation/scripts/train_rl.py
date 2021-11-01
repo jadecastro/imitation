@@ -94,7 +94,6 @@ def train_rl(
 
     if reward_type is not None:
         reward_fn = load_reward(reward_type, reward_path, venv)
-        print(reward_fn)
         venv = RewardVecEnvWrapper(venv, reward_fn)
         callback_objs.append(venv.make_log_callback())
         logging.info(f"Wrapped env in reward {reward_type} from {reward_path}.")

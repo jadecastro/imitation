@@ -600,6 +600,66 @@ def rollout_and_save(
     types.save(path, trajs)
 
 
+def rollout_multi_and_save(
+    path: str,
+    policies: List[AnyPolicy],
+    venv: VecEnv,
+    rollout_save_n_timesteps: Optional[int],
+    rollout_save_n_episodes: Optional[int],
+    *,
+    unwrap: bool = True,
+    exclude_infos: bool = True,
+    verbose: bool = True,
+    **kwargs,
+) -> None:
+    """Generate rollouts for multiple policies and save them to a pickled list of trajectories.
+
+    The `.infos` field of each Trajectory is set to `None` to save space.
+
+    Args:
+        path: Rollouts are saved to this path.
+        policies: A list containing objects which can be any of the following:
+            1) A stable_baselines3 policy or algorithm trained on the gym environment.
+            2) A Callable that takes an ndarray of observations and returns an ndarray
+            of corresponding actions.
+            3) None, in which case actions will be sampled randomly.
+        venv: The vectorized environments.
+        rollout_save_n_timesteps: The minimum number of timesteps saved for every
+            policy. Could be more than `rollout_save_n_timesteps` because
+            trajectories are saved by episode rather than by transition.
+            Must set exactly one of `rollout_save_n_timesteps`
+            and `rollout_save_n_episodes`.
+        rollout_save_n_episodes: The number of episodes saved for every
+            policy. Must set exactly one of `rollout_save_n_timesteps` and
+            `rollout_save_n_episodes`.
+        unwrap: If True, then save original observations and rewards (instead of
+            potentially wrapped observations and rewards) by calling
+            `unwrap_traj()`.
+        exclude_infos: If True, then exclude `infos` from pickle by setting
+            this field to None. Excluding `infos` can save a lot of space during
+            pickles.
+        verbose: If True, then print out rollout stats before saving.
+        **kwargs: Passed through to `generate_trajectories`.
+    """
+    trajs = []
+    for it, policy in enumerate(policies):
+        sample_until = make_sample_until(
+            rollout_save_n_timesteps,
+            rollout_save_n_episodes,
+        )
+        single_trajs = generate_trajectories(policy, venv, sample_until, **kwargs)
+        # import IPython; IPython.embed()        
+        if unwrap:
+            single_trajs = [unwrap_traj(traj) for traj in single_trajs]
+        if exclude_infos:
+            single_trajs = [dataclasses.replace(traj, infos=None) for traj in single_trajs]
+        if verbose:
+            stats = rollout_stats(single_trajs)
+            logging.info(f"Rollout stats for iter {it}: {stats}")
+        trajs.extend(single_trajs)
+    types.save(path, trajs)
+
+
 def discounted_sum(arr: np.ndarray, gamma: float) -> Union[np.ndarray, float]:
     """Calculate the discounted sum of `arr`.
 

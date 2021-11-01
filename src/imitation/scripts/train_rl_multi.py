@@ -80,13 +80,13 @@ def train_rl_multi(
             `imitation.rewards.serialize.load_reward`.
         rollout_save_final: If True, then save rollouts right after training is
             finished.
-        rollout_save_n_timesteps: The minimum number of timesteps saved in every
-            file. Could be more than `rollout_save_n_timesteps` because
+        rollout_save_n_timesteps: The minimum number of timesteps saved for every
+            policy. Could be more than `rollout_save_n_timesteps` because
             trajectories are saved by episode rather than by transition.
             Must set exactly one of `rollout_save_n_timesteps`
             and `rollout_save_n_episodes`.
-        rollout_save_n_episodes: The number of episodes saved in every
-            file. Must set exactly one of `rollout_save_n_timesteps` and
+        rollout_save_n_episodes: The number of episodes saved for every
+            policy. Must set exactly one of `rollout_save_n_timesteps` and
             `rollout_save_n_episodes`.
         policy_save_interval: The number of training updates between in between
             intermediate rollout saves. If the argument is nonpositive, then
@@ -107,6 +107,7 @@ def train_rl_multi(
     coll_rewards = [-1., 0.]  # N.B. `collision_reward` is only defined on the range [-1, 0].
 
     rollout_stats = []
+    rl_algos = []
     for it, cr in enumerate(coll_rewards):
         print("======================")
         print("  Processing iter: {}".format(it))
@@ -123,7 +124,6 @@ def train_rl_multi(
 
         if reward_type is not None:
             reward_fn = load_reward(reward_type, reward_path, venv)
-            print(reward_fn)
             venv = RewardVecEnvWrapper(venv, reward_fn)
             callback_objs.append(venv.make_log_callback())
             logging.info(f"Wrapped env in reward {reward_type} from {reward_path}.")
@@ -146,18 +146,23 @@ def train_rl_multi(
         rl_algo.learn(total_timesteps, callback=callback)
 
         # Save final artifacts after training is complete.
-        if rollout_save_final:
-            save_path = osp.join(rollout_dir, "final.pkl")
-            sample_until = rollout.make_sample_until(
-                rollout_save_n_timesteps,
-                rollout_save_n_episodes,
-            )
-            rollout.rollout_and_save(save_path, rl_algo, venv, sample_until)
+        # N.B. Here, we save the policies separately, and the rollouts together. 
         if policy_save_final:
-            output_dir = os.path.join(policy_dir, "final")
+            output_dir = os.path.join(policy_dir, "final_iter_"+str(it))
             serialize.save_stable_model(output_dir, rl_algo, vec_normalize)
 
         rollout_stats.append(train.eval_policy(rl_algo, venv))
+        rl_algos.append(rl_algo)
+
+    if rollout_save_final:
+        save_path = osp.join(rollout_dir, "final.pkl")
+        rollout.rollout_multi_and_save(
+            save_path,
+            rl_algos,
+            venv,
+            rollout_save_n_timesteps,
+            rollout_save_n_episodes
+        )
 
     # Final evaluation of expert policy.
     return rollout_stats

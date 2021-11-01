@@ -117,6 +117,7 @@ class TrajectoryWithRew(Trajectory):
 
     rews: np.ndarray
     """Reward, shape (trajectory_len, ). dtype float."""
+    context_id: int = None
 
     def __post_init__(self):
         """Performs input validation, including for rews."""

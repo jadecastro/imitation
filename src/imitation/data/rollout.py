@@ -73,6 +73,7 @@ class TrajectoryAccumulator:
         self,
         key: Hashable,
         terminal: bool,
+        context_id: int = None,
     ) -> types.TrajectoryWithRew:
         """Complete the trajectory labelled with `key`.
 
@@ -94,7 +95,7 @@ class TrajectoryAccumulator:
             key: np.stack(arr_list, axis=0)
             for key, arr_list in out_dict_unstacked.items()
         }
-        traj = types.TrajectoryWithRew(**out_dict_stacked, terminal=terminal)
+        traj = types.TrajectoryWithRew(**out_dict_stacked, terminal=terminal, context_id=context_id)
         assert traj.rews.shape[0] == traj.acts.shape[0] == traj.obs.shape[0] - 1
         return traj
 
@@ -105,6 +106,7 @@ class TrajectoryAccumulator:
         rews: np.ndarray,
         dones: np.ndarray,
         infos: List[dict],
+        context_ids: List[int] = None,
     ) -> List[types.TrajectoryWithRew]:
         """Calls `add_step` repeatedly using acts and the returns from `venv.step`.
 
@@ -120,6 +122,7 @@ class TrajectoryAccumulator:
             rews: Return value from `VecEnv.step(acts)`.
             dones: Return value from `VecEnv.step(acts)`.
             infos: Return value from `VecEnv.step(acts)`.
+            context_ids: Identifiers for the context.
 
         Returns:
             A list of completed trajectories. There should be one trajectory for
@@ -156,7 +159,7 @@ class TrajectoryAccumulator:
             )
             if done:
                 # finish env_idx-th trajectory
-                new_traj = self.finish_trajectory(env_idx, terminal=True)
+                new_traj = self.finish_trajectory(env_idx, terminal=True, context_id=context_ids)
                 trajs.append(new_traj)
                 # When done[i] from VecEnv.step() is True, obs[i] is the first
                 # observation following reset() of the ith VecEnv.
@@ -301,6 +304,7 @@ def generate_trajectories(
     policy: AnyPolicy,
     venv: VecEnv,
     sample_until: GenTrajTerminationFn,
+    context_ids: List[int] = None,
     *,
     deterministic_policy: bool = False,
     rng: np.random.RandomState = np.random,
@@ -317,6 +321,7 @@ def generate_trajectories(
         sample_until: A function determining the termination condition.
             It takes a sequence of trajectories, and returns a bool.
             Most users will want to use one of `min_episodes` or `min_timesteps`.
+        context_ids: Identifiers for the context.
         deterministic_policy: If True, asks policy to deterministically return
             action. Note the trajectories might still be non-deterministic if the
             environment has non-determinism!
@@ -366,6 +371,7 @@ def generate_trajectories(
             rews,
             dones,
             infos,
+            context_ids,
         )
         trajectories.extend(new_trajs)
 
@@ -609,6 +615,7 @@ def rollout_multi_and_save(
     *,
     unwrap: bool = True,
     exclude_infos: bool = True,
+    add_context_ids: bool = True,
     verbose: bool = True,
     **kwargs,
 ) -> None:
@@ -638,6 +645,7 @@ def rollout_multi_and_save(
         exclude_infos: If True, then exclude `infos` from pickle by setting
             this field to None. Excluding `infos` can save a lot of space during
             pickles.
+        add_context_ids: If True, adds identifiers for the context.
         verbose: If True, then print out rollout stats before saving.
         **kwargs: Passed through to `generate_trajectories`.
     """
@@ -647,8 +655,9 @@ def rollout_multi_and_save(
             rollout_save_n_timesteps,
             rollout_save_n_episodes,
         )
-        single_trajs = generate_trajectories(policy, venv, sample_until, **kwargs)
-        # import IPython; IPython.embed()        
+        context_ids = it if add_context_ids else None
+        single_trajs = generate_trajectories(policy, venv, sample_until, context_ids=context_ids, **kwargs)
+        # import IPython; IPython.embed()
         if unwrap:
             single_trajs = [unwrap_traj(traj) for traj in single_trajs]
         if exclude_infos:

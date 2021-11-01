@@ -56,6 +56,12 @@ ANT_SHARED_LOCALS = dict(
 
 
 @train_adversarial_ex.named_config
+def highway():
+    common = dict(env_name="highway-v0")
+    algorithm_kwargs = {"allow_variable_horizon": True}
+
+
+@train_adversarial_ex.named_config
 def highway_fast():
     common = dict(env_name="highway-fast-v0")
     algorithm_kwargs = {"allow_variable_horizon": True}

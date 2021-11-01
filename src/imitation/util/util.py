@@ -42,6 +42,7 @@ def make_vec_env(
     max_episode_steps: Optional[int] = None,
     post_wrappers: Optional[Sequence[Callable[[gym.Env, int], gym.Env]]] = None,
     env_make_kwargs: Optional[Mapping[str, Any]] = None,
+    env_config_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> VecEnv:
     """Makes a vectorized environment.
 
@@ -62,6 +63,7 @@ def make_vec_env(
             accepting two arguments, the Env to be wrapped and the environment index,
             and returning the wrapped Env.
         env_make_kwargs: The kwargs passed to `spec.make`.
+        env_config_kwargs: The kwargs passed to `env.configure`.
 
     Returns:
         A VecEnv initialized with `n_envs` environments.
@@ -81,6 +83,8 @@ def make_vec_env(
         # work. For more discussion and hypotheses on this issue see PR #160:
         # https://github.com/HumanCompatibleAI/imitation/pull/160.
         env = spec.make(**env_make_kwargs)
+        if env_config_kwargs:
+            env.configure(env_config_kwargs)
 
         # Seed each environment with a different, non-sequential seed for diversity
         # (even if caller is passing us sequentially-assigned base seeds). int() is

@@ -37,6 +37,11 @@ def render():
 
 
 @eval_policy_ex.named_config
+def highway():
+    common = dict(env_name="highway-v0")
+
+
+@eval_policy_ex.named_config
 def highway_fast():
     common = dict(env_name="highway-fast-v0")
 

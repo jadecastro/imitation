@@ -5,14 +5,14 @@ import highway_env
 
 from imitation.scripts.common import common, rl, train
 
-train_rl_ex = sacred.Experiment(
-    "train_rl",
+train_rl_multi_ex = sacred.Experiment(
+    "train_rl_multi",
     ingredients=[common.common_ingredient, train.train_ingredient, rl.rl_ingredient],
 )
 
 
-@train_rl_ex.config
-def train_rl_defaults():
+@train_rl_multi_ex.config
+def train_rl_multi_defaults():
     total_timesteps = int(1e6)  # Number of training timesteps in model.learn()
     normalize = True  # Use VecNormalize
     normalize_kwargs = dict()  # kwargs for `VecNormalize`
@@ -29,7 +29,7 @@ def train_rl_defaults():
     policy_save_final = True  # If True, save after training is finished.
 
 
-@train_rl_ex.config
+@train_rl_multi_ex.config
 def default_end_cond(rollout_save_n_timesteps, rollout_save_n_episodes):
     # Only set default if both end cond options are None.
     # This way the Sacred CLI caller can set `rollout_save_n_episodes` only
@@ -41,89 +41,89 @@ def default_end_cond(rollout_save_n_timesteps, rollout_save_n_episodes):
 # Standard Gym env configs
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def highway():
     common = dict(env_name="highway-v0")
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def highway_fast():
     common = dict(env_name="highway-fast-v0")
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def acrobot():
     common = dict(env_name="Acrobot-v1")
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def ant():
     common = dict(env_name="Ant-v2")
     rl = dict(batch_size=16384)
     total_timesteps = int(5e6)
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def cartpole():
     common = dict(env_name="CartPole-v1")
     total_timesteps = int(1e5)
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def seals_cartpole():
     common = dict(env_name="seals/CartPole-v0")
     total_timesteps = int(1e6)
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def half_cheetah():
     common = dict(env_name="HalfCheetah-v2")
     total_timesteps = int(5e6)  # does OK after 1e6, but continues improving
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def seals_hopper():
     common = dict(env_name="seals/Hopper-v0")
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def seals_humanoid():
     common = dict(env_name="seals/Humanoid-v0")
     rl = dict(batch_size=16384)
     total_timesteps = int(10e6)  # fairly discontinuous, needs at least 5e6
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def mountain_car():
     common = dict(env_name="MountainCar-v0")
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def seals_mountain_car():
     common = dict(env_name="seals/MountainCar-v0")
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def pendulum():
     common = dict(env_name="Pendulum-v0")
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def reacher():
     common = dict(env_name="Reacher-v2")
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def seals_ant():
     common = dict(env_name="seals/Ant-v0")
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def seals_swimmer():
     common = dict(env_name="seals/Swimmer-v0")
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def seals_walker():
     common = dict(env_name="seals/Walker2d-v0")
 
@@ -131,7 +131,7 @@ def seals_walker():
 # Debug configs
 
 
-@train_rl_ex.named_config
+@train_rl_multi_ex.named_config
 def fast():
     """Intended for testing purposes: small # of updates, ends quickly."""
     total_timesteps = int(4)

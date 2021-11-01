@@ -1,4 +1,5 @@
-"""Uses RL to train a policy from scratch, saving rollouts and policy.
+"""Uses RL to train a policy for multiple ground-truth rewards from scratch,
+saving rollouts and policy.
 
 This can be used:
     1. To train a policy on a ground-truth reward function, as a source of
@@ -23,11 +24,24 @@ from imitation.policies import serialize
 from imitation.rewards.reward_wrapper import RewardVecEnvWrapper
 from imitation.rewards.serialize import load_reward
 from imitation.scripts.common import common, rl, train
-from imitation.scripts.config.train_rl import train_rl_ex
+from imitation.scripts.config.train_rl_multi import train_rl_multi_ex
 
 
-@train_rl_ex.main
-def train_rl(
+# Reward weights and config settings corresponding to the `highway-fast` env. 
+DEFAULT_ENV_CONFIG = dict(
+    collision_reward=-1.,
+    # right_lane_reward=0.,
+    # high_speed_reward=0.,
+    simulation_frequency=5,
+    lanes_count=3,
+    vehicles_count=20,
+    duration=30,  # [s]
+    ego_spacing=1.5,
+)
+
+
+@train_rl_multi_ex.main
+def train_rl_multi(
     *,
     _run: sacred.run.Run,
     _seed: int,
@@ -43,6 +57,8 @@ def train_rl(
     policy_save_final: bool,
 ) -> Mapping[str, float]:
     """Trains an expert policy from scratch and saves the rollouts and policy.
+      Does this repeatedly for multiple reward instantiations, saving each policy
+      separately, but combines the rollouts into a single pickle file.
 
     Checkpoints:
       At applicable training steps `step` (where step is either an integer or
@@ -87,55 +103,70 @@ def train_rl(
     os.makedirs(rollout_dir, exist_ok=True)
     os.makedirs(policy_dir, exist_ok=True)
 
-    venv = common.make_venv(
-        post_wrappers=[lambda env, idx: wrappers.RolloutInfoWrapper(env)],
-    )
-    callback_objs = []
+    # TODO(jon): make this a parameter.
+    coll_rewards = [-1., 0.]  # N.B. `collision_reward` is only defined on the range [-1, 0].
 
-    if reward_type is not None:
-        reward_fn = load_reward(reward_type, reward_path, venv)
-        print(reward_fn)
-        venv = RewardVecEnvWrapper(venv, reward_fn)
-        callback_objs.append(venv.make_log_callback())
-        logging.info(f"Wrapped env in reward {reward_type} from {reward_path}.")
+    rollout_stats = []
+    for it, cr in enumerate(coll_rewards):
+        print("======================")
+        print("  Processing iter: {}".format(it))
+        print("======================")
 
-    vec_normalize = None
-    if normalize:
-        venv = vec_normalize = VecNormalize(venv, **normalize_kwargs)
+        env_config_kwargs = DEFAULT_ENV_CONFIG
+        env_config_kwargs["collision_reward"] = cr
 
-    if policy_save_interval > 0:
-        save_policy_callback = serialize.SavePolicyCallback(policy_dir, vec_normalize)
-        save_policy_callback = callbacks.EveryNTimesteps(
-            policy_save_interval,
-            save_policy_callback,
+        venv = common.make_venv(
+            post_wrappers=[lambda env, idx: wrappers.RolloutInfoWrapper(env)],
+            env_config_kwargs=env_config_kwargs,
         )
-        callback_objs.append(save_policy_callback)
-    callback = callbacks.CallbackList(callback_objs)
+        callback_objs = []
 
-    rl_algo = rl.make_rl_algo(venv)
-    rl_algo.set_logger(custom_logger)
-    rl_algo.learn(total_timesteps, callback=callback)
+        if reward_type is not None:
+            reward_fn = load_reward(reward_type, reward_path, venv)
+            print(reward_fn)
+            venv = RewardVecEnvWrapper(venv, reward_fn)
+            callback_objs.append(venv.make_log_callback())
+            logging.info(f"Wrapped env in reward {reward_type} from {reward_path}.")
 
-    # Save final artifacts after training is complete.
-    if rollout_save_final:
-        save_path = osp.join(rollout_dir, "final.pkl")
-        sample_until = rollout.make_sample_until(
-            rollout_save_n_timesteps,
-            rollout_save_n_episodes,
-        )
-        rollout.rollout_and_save(save_path, rl_algo, venv, sample_until)
-    if policy_save_final:
-        output_dir = os.path.join(policy_dir, "final")
-        serialize.save_stable_model(output_dir, rl_algo, vec_normalize)
+        vec_normalize = None
+        if normalize:
+            venv = vec_normalize = VecNormalize(venv, **normalize_kwargs)
+
+        if policy_save_interval > 0:
+            save_policy_callback = serialize.SavePolicyCallback(policy_dir, vec_normalize)
+            save_policy_callback = callbacks.EveryNTimesteps(
+                policy_save_interval,
+                save_policy_callback,
+            )
+            callback_objs.append(save_policy_callback)
+        callback = callbacks.CallbackList(callback_objs)
+
+        rl_algo = rl.make_rl_algo(venv)
+        rl_algo.set_logger(custom_logger)
+        rl_algo.learn(total_timesteps, callback=callback)
+
+        # Save final artifacts after training is complete.
+        if rollout_save_final:
+            save_path = osp.join(rollout_dir, "final.pkl")
+            sample_until = rollout.make_sample_until(
+                rollout_save_n_timesteps,
+                rollout_save_n_episodes,
+            )
+            rollout.rollout_and_save(save_path, rl_algo, venv, sample_until)
+        if policy_save_final:
+            output_dir = os.path.join(policy_dir, "final")
+            serialize.save_stable_model(output_dir, rl_algo, vec_normalize)
+
+        rollout_stats.append(train.eval_policy(rl_algo, venv))
 
     # Final evaluation of expert policy.
-    return train.eval_policy(rl_algo, venv)
+    return rollout_stats
 
 
 def main_console():
-    observer = FileStorageObserver(osp.join("output", "sacred", "train_rl"))
-    train_rl_ex.observers.append(observer)
-    train_rl_ex.run_commandline()
+    observer = FileStorageObserver(osp.join("output", "sacred", "train_rl_multi"))
+    train_rl_multi_ex.observers.append(observer)
+    train_rl_multi_ex.run_commandline()
 
 
 if __name__ == "__main__":  # pragma: no cover

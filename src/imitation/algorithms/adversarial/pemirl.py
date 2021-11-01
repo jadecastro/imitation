@@ -221,6 +221,8 @@ class PEMIRL(common.AdversarialTrainer):
     ) -> Tuple[th.Tensor, th.Tensor]:
         # Note: We're inputting the expert trajectory.
         mean_context, log_std_context = self._context_encoder_net(state, action, next_state, done)
+        print("mean context")
+        print(mean_context)
 
         # Reparameterization step
         # kld = self.kld(mean_context, log_std_context)

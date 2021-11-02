@@ -119,7 +119,7 @@ def train_adversarial(
 
     logger.info(f"Using '{algo_cls}' algorithm")
     algorithm_kwargs = dict(algorithm_kwargs)
-    for k in ("shared", "airl", "gail"):
+    for k in ("shared", "airl", "gail", "pemirl"):
         # Config hook has copied relevant subset of config to top-level.
         # But due to Sared limitations, cannot delete the rest of it.
         # So do that here to avoid passing in invalid arguments to constructor.

@@ -485,7 +485,7 @@ def flatten_trajectories(
     Returns:
         The trajectories flattened into a single batch of Transitions.
     """
-    keys = ["obs", "next_obs", "acts", "dones", "infos"]
+    keys = ["obs", "next_obs", "acts", "dones", "infos", "context_id"]
     parts = {key: [] for key in keys}
     for traj in trajectories:
         parts["acts"].append(traj.acts)
@@ -503,6 +503,13 @@ def flatten_trajectories(
         else:
             infos = traj.infos
         parts["infos"].append(infos)
+
+        if traj.context_id is None:
+            context_id = np.empty(len(traj.acts))
+            context_id[:] = np.NaN
+        else:
+            context_id = traj.context_id * np.ones(len(traj.acts), dtype=int)
+        parts["context_id"].append(context_id)
 
     cat_parts = {
         key: np.concatenate(part_list, axis=0) for key, part_list in parts.items()

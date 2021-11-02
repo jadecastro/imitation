@@ -371,6 +371,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                 batch["action"],
                 batch["next_state"],
                 batch["done"],
+                batch["context_id"],
             )
 
             disc_logits, reward = self.logits_gen_is_high(
@@ -569,11 +570,14 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
         assert n_gen == len(gen_samples["acts"])
         assert n_gen == len(gen_samples["next_obs"])
 
+        gen_context_ids = np.NaN * gen_samples["dones"]
+
         # Concatenate rollouts, and label each row as expert or generator.
         obs = np.concatenate([expert_samples["obs"], gen_samples["obs"]])
         acts = np.concatenate([expert_samples["acts"], gen_samples["acts"]])
         next_obs = np.concatenate([expert_samples["next_obs"], gen_samples["next_obs"]])
         dones = np.concatenate([expert_samples["dones"], gen_samples["dones"]])
+        context_id = np.concatenate([expert_samples["context_id"], gen_context_ids])
         labels_gen_is_one = np.concatenate(
             [np.zeros(n_expert, dtype=int), np.ones(n_gen, dtype=int)],
         )
@@ -611,6 +615,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
             "done": dones_th,
             "labels_gen_is_one": self._torchify_array(labels_gen_is_one),
             "log_policy_act_prob": self._torchify_array(log_act_prob),
+            "context_id": context_id,
         }
 
         return batch_dict

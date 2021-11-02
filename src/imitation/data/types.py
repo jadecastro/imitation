@@ -117,7 +117,9 @@ class TrajectoryWithRew(Trajectory):
 
     rews: np.ndarray
     """Reward, shape (trajectory_len, ). dtype float."""
-    context_id: int = None
+
+    context_id: Optional[int] = None
+    """Context id. dtype int.  TODO: Move this to Trajectory?"""
 
     def __post_init__(self):
         """Performs input validation, including for rews."""
@@ -267,6 +269,9 @@ class Transitions(TransitionsMinimal):
     `done[i]` is true iff `next_obs[i]` the last observation of an episode.
     """
 
+    context_id: Optional[int] = None
+    """Context id. dtype int."""
+
     def __post_init__(self):
         """Performs input validation: check shapes & dtypes match docstring."""
         super().__post_init__()
@@ -293,7 +298,9 @@ class Transitions(TransitionsMinimal):
 class TransitionsWithRew(Transitions):
     """A batch of obs-act-obs-rew-done transitions."""
 
-    rews: np.ndarray
+    rews: Optional[np.ndarray] = None
+    # TODO(jon): Needed to add this None here, since Transitions
+    # now has a default member field.
     """
     Reward. Shape: (batch_size, ). dtype float.
 

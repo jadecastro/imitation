@@ -1,5 +1,6 @@
 """Probabilsitic Embedding Meta Inverse Reinforcement Learning (PEMIRL)."""
 
+import numpy as np
 import gym
 from typing import Iterable, Optional, Tuple
 
@@ -207,22 +208,31 @@ class PEMIRL(common.AdversarialTrainer):
     def reparameterize(self, mean, log_std):
         eps = th.randn_like(mean)
         return mean + th.exp(log_std) * eps
-    
-    def kld(self, mean, log_std):
-        # Note: original formulation was for log_var - we're using log_std below.
-        return -0.5 * th.sum(1 + log_std - mean.pow(2) - log_std.exp())
-    
+
+    def kld(self, mean, log_var):
+        # TODO(jon): This formulation uses log_var - we need to reformulate for log_std.
+        return -0.5 * th.sum(1 + log_var - mean.pow(2) - log_var.exp())
+
     def context_encoder_log_likelihood(
         self,
         state: th.Tensor,
         action: th.Tensor,
         next_state: th.Tensor,
         done: th.Tensor,
+        context_id,
     ) -> Tuple[th.Tensor, th.Tensor]:
         # Note: We're inputting the expert trajectory.
         mean_context, log_std_context = self._context_encoder_net(state, action, next_state, done)
-        print("mean context")
-        print(mean_context)
+
+        # Manually dump the context var info to stdout for quick insepection.
+        max_count = 100
+        count = 0
+        for i, cid in enumerate(context_id):
+            if not np.isnan(cid):
+                print(f"gen context {mean_context[i]}, GT context {cid}")
+                count += 1
+            if count > max_count:
+                break
 
         # Reparameterization step
         # kld = self.kld(mean_context, log_std_context)

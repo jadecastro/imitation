@@ -109,7 +109,7 @@ class ContextEncoderNet(th.nn.Module):
 
 
 class PEMIRL(common.AdversarialTrainer):
-    """Probabilisit Embedding Meta Inverse Reinforcement Learning (`PEMIRL`_).
+    """Probabilistic Embedding Meta Inverse Reinforcement Learning (`PEMIRL`_).
 
     .. _PEMIRL: https://arxiv.org/pdf/1909.09314.pdf
     """
@@ -123,6 +123,7 @@ class PEMIRL(common.AdversarialTrainer):
         gen_algo: base_class.BaseAlgorithm,
         reward_net: Optional[reward_nets.RewardNet] = None,
         context_encoder_net: Optional[th.nn.Module] = None,
+        traj_length: int = None,
         **kwargs,
     ):
         """Builds an PEMIRL trainer.
@@ -141,6 +142,7 @@ class PEMIRL(common.AdversarialTrainer):
                 `venv` and `custom_logger`.
             reward_net: Reward network; used as part of AIRL discriminator. Defaults to
                 `reward_nets.BasicShapedRewardNet` when unspecified.
+            traj_length: Trajectory length to use for training PEMIRL LSTM encoder.
             **kwargs: Passed through to `AdversarialTrainer.__init__`.
 
         Raises:
@@ -162,12 +164,14 @@ class PEMIRL(common.AdversarialTrainer):
         self._context_encoder_net = context_encoder_net
         print(self._reward_net.parameters())
         print(self._context_encoder_net.parameters())
+        print(f"traj_length: {traj_length}")
         super().__init__(
             demonstrations=demonstrations,
             demo_batch_size=demo_batch_size,
             venv=venv,
             gen_algo=gen_algo,
             disc_parameters=list(self._reward_net.parameters()) + list(self._context_encoder_net.parameters()),
+            traj_length=traj_length,
             **kwargs,
         )
         if not hasattr(self.gen_algo.policy, "evaluate_actions"):

@@ -129,6 +129,7 @@ class DemonstrationAlgorithm(BaseImitationAlgorithm, Generic[TransitionKind]):
         demonstrations: Optional[AnyTransitions],
         custom_logger: Optional[imit_logger.HierarchicalLogger] = None,
         allow_variable_horizon: bool = False,
+        traj_length: int = None,
     ):
         """Creates an algorithm that learns from demonstrations.
 
@@ -145,6 +146,7 @@ class DemonstrationAlgorithm(BaseImitationAlgorithm, Generic[TransitionKind]):
                 condition, and can seriously confound evaluation. Read
                 https://imitation.readthedocs.io/en/latest/guide/variable_horizon.html
                 before overriding this.
+             traj_length: The trajectory sequence history for LSTM.  None assumes history of 1.
         """
         super().__init__(
             custom_logger=custom_logger,
@@ -152,10 +154,14 @@ class DemonstrationAlgorithm(BaseImitationAlgorithm, Generic[TransitionKind]):
         )
 
         if demonstrations is not None:
-            self.set_demonstrations(demonstrations)
+            self.set_demonstrations(demonstrations, traj_length)
 
     @abc.abstractmethod
-    def set_demonstrations(self, demonstrations: AnyTransitions) -> None:
+    def set_demonstrations(
+            self,
+            demonstrations: AnyTransitions,
+            traj_length: int,
+    ) -> None:
         """Sets the demonstration data.
 
         Changing the demonstration data on-demand can be useful for
@@ -165,6 +171,7 @@ class DemonstrationAlgorithm(BaseImitationAlgorithm, Generic[TransitionKind]):
              demonstrations: Either a Torch `DataLoader`, any other iterator that
                 yields dictionaries containing "obs" and "acts" Tensors or NumPy arrays,
                 `TransitionKind` instance, or a Sequence of Trajectory objects.
+             traj_length: The trajectory sequence history for LSTM.  None assumes history of 1.
         """
 
     @property
@@ -218,6 +225,7 @@ def make_data_loader(
     transitions: AnyTransitions,
     batch_size: int,
     data_loader_kwargs: Optional[Mapping[str, Any]] = None,
+    traj_length: int = None,
 ) -> Iterable[TransitionMapping]:
     """Converts demonstration data to Torch data loader.
 
@@ -228,6 +236,7 @@ def make_data_loader(
         batch_size: The size of the batch to create. Does not change the batch size
             if `transitions` is already an iterable of transition batches.
         data_loader_kwargs: Arguments to pass to `th_data.DataLoader`.
+        traj_length: length of the LSTM history.  If None, use 1-sample history.
 
     Returns:
         An iterable of transition batches.
@@ -247,7 +256,12 @@ def make_data_loader(
         except StopIteration:
             first_item = None
         if isinstance(first_item, types.Trajectory):
-            transitions = rollout.flatten_trajectories(list(transitions))
+            if traj_length is None:
+                transitions = rollout.flatten_trajectories(list(transitions))
+            else:
+                transitions = rollout.make_fixed_length_transitions(
+                    list(transitions), traj_length
+                )
 
     if isinstance(transitions, types.TransitionsMinimal):
         if len(transitions) < batch_size:

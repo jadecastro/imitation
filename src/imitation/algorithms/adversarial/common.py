@@ -127,6 +127,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
         debug_use_ground_truth: bool = False,
         allow_variable_horizon: bool = False,
         loss_coeffs: Dict = None,
+        traj_length: int = None,
     ):
         """Builds AdversarialTrainer.
 
@@ -176,6 +177,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                 https://imitation.readthedocs.io/en/latest/guide/variable_horizon.html
                 before overriding this.
             loss_coeffs: A dict of coefficients for the loss terms for PEMIRL.
+            traj_length: Trajectory length to use for training PEMIRL LSTM encoder.
         """
         self.demo_batch_size = demo_batch_size
         self._demo_data_loader = None
@@ -184,7 +186,9 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
             demonstrations=demonstrations,
             custom_logger=custom_logger,
             allow_variable_horizon=allow_variable_horizon,
+            traj_length=traj_length,
         )
+        self.traj_length = traj_length
 
         self._global_step = 0
         self._disc_step = 0
@@ -253,7 +257,9 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
         )
 
         if loss_coeffs is None:
-            loss_coeffs = dict(info=1.0)
+            loss_coeffs = dict(info=1000.0)
+            print("loss_coeffs")
+            print(loss_coeffs)
         self.loss_coeffs = loss_coeffs
 
     @property
@@ -322,10 +328,15 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
     def reward_test(self) -> reward_nets.RewardNet:
         """Reward used to train policy at "test" time after adversarial training."""
 
-    def set_demonstrations(self, demonstrations: base.AnyTransitions) -> None:
+    def set_demonstrations(
+            self,
+            demonstrations: base.AnyTransitions,
+            traj_length: int,
+    ) -> None:
         self._demo_data_loader = base.make_data_loader(
             demonstrations,
             self.demo_batch_size,
+            traj_length=traj_length,
         )
         self._endless_expert_iterator = util.endless_iter(self._demo_data_loader)
 
@@ -366,6 +377,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                 expert_samples=expert_samples,
             )
 
+            # import IPython; IPython.embed()
             log_q_m_tau, reparam_latent = self.context_encoder_log_likelihood(
                 batch["state"],
                 batch["action"],
@@ -465,7 +477,12 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
 
         gen_trajs, ep_lens = self.venv_buffering.pop_trajectories()
         self._check_fixed_horizon(ep_lens)
-        gen_samples = rollout.flatten_trajectories_with_rew(gen_trajs)
+        if self.traj_lengths is None:
+            gen_samples = rollout.flatten_trajectories_with_rew(gen_trajs)
+        else:
+            gen_samples = rollout.make_fixed_length_transitions(gen_trajs, use_reward=True)
+            
+        import IPython; IPython.embed()
         self._gen_replay_buffer.store(gen_samples)
 
     def train(
@@ -573,6 +590,15 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
         gen_context_ids = np.NaN * gen_samples["dones"]
 
         # Concatenate rollouts, and label each row as expert or generator.
+        # import IPython; IPython.embed()
+        # # TODO(jon): Check that it is indeed correct to just give the one-step transition.
+        # expert_samples_obs = expert_samples["obs"]
+        # if expert_samples_obs.shape != gen_samples["obs"].shape:
+        #     expert_samples_obs = expert_samples_obs[:,-1,:,:]   # Only use the final step.
+        # expert_samples_acts = expert_samples["acts"]
+        # if expert_samples_acts.shape != gen_samples["acts"].shape:
+        #     expert_samples_acts = expert_samples_acts[:,-1]   # Only use the final step.
+
         obs = np.concatenate([expert_samples["obs"], gen_samples["obs"]])
         acts = np.concatenate([expert_samples["acts"], gen_samples["acts"]])
         next_obs = np.concatenate([expert_samples["next_obs"], gen_samples["next_obs"]])

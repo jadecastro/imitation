@@ -275,10 +275,16 @@ class Transitions(TransitionsMinimal):
     def __post_init__(self):
         """Performs input validation: check shapes & dtypes match docstring."""
         super().__post_init__()
-        if self.obs.shape != self.next_obs.shape:
+        # if self.obs.shape != self.next_obs.shape:
+        #     raise ValueError(
+        #         "obs and next_obs must have same shape: "
+        #         f"{self.obs.shape} != {self.next_obs.shape}",
+        #     )
+        # TODO(jon): Check the shape when we have a history of obs.
+        if len(self.obs) != len(self.next_obs):
             raise ValueError(
-                "obs and next_obs must have same shape: "
-                f"{self.obs.shape} != {self.next_obs.shape}",
+                "obs and next_obs must have same length: "
+                f"{len(self.obs)} != {len(self.next_obs)}",
             )
         if self.obs.dtype != self.next_obs.dtype:
             raise ValueError(

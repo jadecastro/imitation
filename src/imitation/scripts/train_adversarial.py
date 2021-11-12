@@ -76,6 +76,7 @@ def train_adversarial(
     algorithm_kwargs: Mapping[str, Any],
     total_timesteps: int,
     checkpoint_interval: int,
+    traj_length_if_pemirl: int,
 ) -> Mapping[str, Mapping[str, float]]:
     """Train an adversarial-network-based imitation learning algorithm.
 
@@ -97,6 +98,8 @@ def train_adversarial(
             `checkpoint_interval` rounds and after training is complete. If 0,
             then only save weights after training is complete. If <0, then don't
             save weights at all.
+        traj_length_if_pemirl: Trajectory length to use for LSTM encoder if training
+            PEMIRL.
 
     Returns:
         A dictionary with two keys. "imit_stats" gives the return value of
@@ -118,6 +121,7 @@ def train_adversarial(
     reward_net = reward.make_reward_net(venv)
 
     logger.info(f"Using '{algo_cls}' algorithm")
+    traj_length_if_pemirl = traj_length_if_pemirl if algo_cls == pemirl_algo.PEMIRL else None
     algorithm_kwargs = dict(algorithm_kwargs)
     for k in ("shared", "airl", "gail", "pemirl"):
         # Config hook has copied relevant subset of config to top-level.
@@ -132,6 +136,7 @@ def train_adversarial(
         log_dir=log_dir,
         reward_net=reward_net,
         custom_logger=custom_logger,
+        traj_length=traj_length_if_pemirl,
         **algorithm_kwargs,
     )
 

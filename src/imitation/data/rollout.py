@@ -474,6 +474,85 @@ def mean_return(*args, **kwargs) -> float:
     return rollout_stats(trajectories)["return_mean"]
 
 
+def make_fixed_length_transitions(
+    trajectories: Sequence[types.Trajectory],
+    traj_length: int,
+    use_reward: bool = False,
+) -> types.Transitions:
+    """Convert a series of trajectory dictionaries into block arrays of sub-trajectories.
+
+    Args:
+        trajectories: list of trajectories.
+        traj_length: length of the LSTM history.
+
+    Returns:
+        The block array of a single batch of Transitions.
+    """
+    keys = ["obs", "next_obs", "acts", "dones", "infos", "context_id"]
+    rews = []
+    parts = {key: [] for key in keys}
+    for traj in trajectories:
+        parts["acts"].append(traj.acts)
+
+        obs = traj.obs
+        parts["obs"].append(obs[:-1])
+        parts["next_obs"].append(obs[1:])
+
+        dones = np.zeros(len(traj.acts), dtype=bool)
+        dones[-1] = traj.terminal
+        parts["dones"].append(dones)
+
+        if traj.infos is None:
+            infos = np.array([{}] * len(traj))
+        else:
+            infos = traj.infos
+        parts["infos"].append(infos)
+
+        if traj.context_id is None:
+            context_id = np.empty(len(traj.acts))
+            context_id[:] = np.NaN
+        else:
+            context_id = traj.context_id * np.ones(len(traj.acts), dtype=int)
+        parts["context_id"].append(context_id)
+
+        if use_reward:
+            rews.append(traj.rews)
+
+    cat_parts = {key: [] for key in keys}
+    # First, fill in the histories (for `obs` and `acts`).
+    subkeys = ["obs", "acts"]
+    for key in subkeys:
+        for sublist in parts[key]:
+            for j in range(traj_length, len(sublist) - 1):
+                cat_parts[key].append(sublist[j - traj_length:j])
+
+    # Next, fill in the prediction and meta info for each batch element.
+    subkeys = ["next_obs", "dones", "infos", "context_id"]
+    for key in subkeys:
+        for sublist in parts[key]:
+            cat_parts[key].extend(
+                [sublist[j] for j in range(traj_length, len(sublist) - 1)]
+            )
+
+    cat_rews = []
+    if use_reward:
+        for sublist in rews:
+            cat_rews.extend(
+                [sublist[j] for j in range(traj_length, len(sublist) - 1)]
+            )
+        
+
+    cat_parts = {
+        key: np.stack(part_list, axis=0) for key, part_list in cat_parts.items()
+    }
+
+    lengths = set(map(len, cat_parts.values()))
+    assert len(lengths) == 1, f"expected one length, got {lengths}"
+    if use_reward:
+        return types.TransitionsWithRew(**cat_parts, rews=rews)
+    return types.Transitions(**cat_parts)
+
+
 def flatten_trajectories(
     trajectories: Sequence[types.Trajectory],
 ) -> types.Transitions:

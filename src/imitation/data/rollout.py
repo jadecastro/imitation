@@ -540,7 +540,7 @@ def make_fixed_length_transitions(
             cat_rews.extend(
                 [sublist[j] for j in range(traj_length, len(sublist) - 1)]
             )
-        
+        cat_rews = np.stack(cat_rews)
 
     cat_parts = {
         key: np.stack(part_list, axis=0) for key, part_list in cat_parts.items()
@@ -549,7 +549,7 @@ def make_fixed_length_transitions(
     lengths = set(map(len, cat_parts.values()))
     assert len(lengths) == 1, f"expected one length, got {lengths}"
     if use_reward:
-        return types.TransitionsWithRew(**cat_parts, rews=rews)
+        return types.TransitionsWithRew(**cat_parts, rews=cat_rews)
     return types.Transitions(**cat_parts)
 
 

@@ -254,6 +254,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
         self._gen_replay_buffer = buffer.ReplayBuffer(
             gen_replay_buffer_capacity,
             self.venv,
+            traj_length=traj_length,
         )
 
         if loss_coeffs is None:
@@ -477,12 +478,12 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
 
         gen_trajs, ep_lens = self.venv_buffering.pop_trajectories()
         self._check_fixed_horizon(ep_lens)
-        if self.traj_lengths is None:
+        if self.traj_length is None:
             gen_samples = rollout.flatten_trajectories_with_rew(gen_trajs)
         else:
-            gen_samples = rollout.make_fixed_length_transitions(gen_trajs, use_reward=True)
-            
-        import IPython; IPython.embed()
+            gen_samples = rollout.make_fixed_length_transitions(
+                gen_trajs, self.traj_length, use_reward=True
+            )
         self._gen_replay_buffer.store(gen_samples)
 
     def train(
@@ -599,8 +600,8 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
         # if expert_samples_acts.shape != gen_samples["acts"].shape:
         #     expert_samples_acts = expert_samples_acts[:,-1]   # Only use the final step.
 
-        obs = np.concatenate([expert_samples["obs"], gen_samples["obs"]])
-        acts = np.concatenate([expert_samples["acts"], gen_samples["acts"]])
+        obs = obs_hist = np.concatenate([expert_samples["obs"], gen_samples["obs"]])
+        acts = acts_hist = np.concatenate([expert_samples["acts"], gen_samples["acts"]])
         next_obs = np.concatenate([expert_samples["next_obs"], gen_samples["next_obs"]])
         dones = np.concatenate([expert_samples["dones"], gen_samples["dones"]])
         context_id = np.concatenate([expert_samples["context_id"], gen_context_ids])
@@ -614,8 +615,15 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
 
         # Calculate generator-policy log probabilities.
         with th.no_grad():
-            obs_th = th.as_tensor(obs, device=self.gen_algo.device)
-            acts_th = th.as_tensor(acts, device=self.gen_algo.device)
+            obs_hist_th = th.as_tensor(obs, device=self.gen_algo.device)
+            acts_hist_th = th.as_tensor(acts, device=self.gen_algo.device)
+            if self.traj_length is None:
+                obs_th = obs_hist_th
+                acts_th = acts_hist_th
+            else:
+                obs_th = obs_hist_th[:,-1]
+                acts_th = acts_hist_th[:,-1]
+
             log_act_prob = None
             if hasattr(self.gen_algo.policy, "evaluate_actions"):
                 _, log_act_prob_th, _ = self.gen_algo.policy.evaluate_actions(
@@ -628,6 +636,9 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                 log_act_prob = log_act_prob.reshape((n_samples,))
             del obs_th, acts_th  # unneeded
 
+        if self.traj_length is not None:
+            obs = obs[:,-1]
+            acts = acts[:,-1]
         obs_th, acts_th, next_obs_th, dones_th = self.reward_train.preprocess(
             obs,
             acts,
@@ -635,6 +646,8 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
             dones,
         )
         batch_dict = {
+            "state_hist": obs_hist_th,
+            "action_hist": acts_hist_th,
             "state": obs_th,
             "action": acts_th,
             "next_state": next_obs_th,

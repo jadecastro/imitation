@@ -243,6 +243,7 @@ class ReplayBuffer:
         act_shape: Optional[Tuple[int, ...]] = None,
         obs_dtype: Optional[np.dtype] = None,
         act_dtype: Optional[np.dtype] = None,
+        traj_length: int = None,
     ):
         """Constructs a ReplayBuffer.
 
@@ -272,11 +273,17 @@ class ReplayBuffer:
             if np.any([x is None for x in params]):
                 raise ValueError("Shape or dtype missing and no environment specified.")
 
+        next_obs_shape = obs_shape
+
+        if traj_length is not None:
+            obs_shape = tuple([traj_length]) + obs_shape
+            act_shape = tuple([traj_length]) + act_shape
+
         self.capacity = capacity
         sample_shapes = {
             "obs": obs_shape,
             "acts": act_shape,
-            "next_obs": obs_shape,
+            "next_obs": next_obs_shape,
             "dones": (),
             "infos": (),
         }

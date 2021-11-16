@@ -26,6 +26,8 @@ class ContextEncoderNet(th.nn.Module):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
+        traj_length: int,
+        batch_size: int,
         use_state: bool = True,
         use_action: bool = True,
         use_next_state: bool = False,
@@ -44,8 +46,10 @@ class ContextEncoderNet(th.nn.Module):
             kwargs: passed straight through to `build_mlp`.
         """
         super().__init__()
+        self.traj_length = traj_length if traj_length is not None else 1
         self.observation_space = observation_space
         self.action_space = action_space
+        self.normalize_images = False
         combined_size = 0
 
         self.use_state = use_state
@@ -55,57 +59,143 @@ class ContextEncoderNet(th.nn.Module):
         self.use_action = use_action
         if self.use_action:
             combined_size += preprocessing.get_flattened_obs_dim(action_space)
+        # import IPython; IPython.embed()
 
         self.use_next_state = use_next_state
         if self.use_next_state:
-            combined_size += preprocessing.get_flattened_obs_dim(observation_space)
+            # combined_size += preprocessing.get_flattened_obs_dim(observation_space)
+            raise ValueError("use_next_state not yet implemented for LSTM.")
 
         self.use_done = use_done
         if self.use_done:
-            combined_size += 1
+            # combined_size += 1
+            raise ValueError("use_done not yet implemented for LSTM.")
+
+        # input_size = (batch_size, traj_length, combined_size)
+
+        self.num_layers = 1
+        self.hidden_size = 32
+        self.bidirectional = False
+        self.hidden_factor = (2 if self.bidirectional else 1) * self.num_layers
+
+        # import IPython; IPython.embed()
 
         # Build MLPs for mean and log-std.
         # Note that the MetaIRL repo uses a GaussianMLPPolicy from rllab's sandbox.rocky.tf.policies.
         # Their input is expert_traj_var, of dimension [meta_batch_size, batch_size, T, dO+dU]
         # They also provide a placeholder to make it a recurrent net.
-        # TODO(jon): do we want a recurrent net here?
-        self._mean_net = networks.build_mlp(
+        self.encoder, self.hidden_to_mean, self.hidden_to_logstd = networks.build_gaussian_lstm(
             in_size=combined_size,
-            out_size=1,
-            hid_sizes=(32, 32),
-            squeeze_output=True,
-            flatten_input=True,
+            hidden_size=self.hidden_size,
+            latent_size=2,
+            num_layers=self.num_layers,
+            bidirectional=self.bidirectional,
+            flatten_input=False,
         )
-        self._log_std_net = networks.build_mlp(
-            in_size=combined_size,
-            out_size=1,
-            hid_sizes=(32, 32),
-            squeeze_output=True,
-            flatten_input=True,
+
+    def preprocess(
+        self,
+        state_hist: np.ndarray,
+        action_hist: np.ndarray,
+        next_state: np.ndarray = None,
+        done: np.ndarray = None,
+    ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
+        """Preprocess a batch of input transitions and convert it to PyTorch tensors.
+
+        The output of this function is suitable for its forward pass,
+        so a typical usage would be ``model(*model.preprocess(transitions))``.
+
+        Args:
+            state_hist: The observation input history. Its shape is
+                `(batch_size, traj_length) + observation_space.shape`.
+            action_hist: The action input history. Its shape is
+                `(batch_size, traj_length) + action_space.shape`. The None dimension is
+                expected to be the same as None dimension from `obs_input`.
+            next_state: The observation input. Its shape is
+                `(batch_size,) + observation_space.shape`.
+            done: Whether the episode has terminated. Its shape is `(batch_size,)`.
+
+        Returns:
+            Preprocessed transitions: a Tuple of tensors containing
+            observations, actions, next observations and dones.
+        """
+        state_hist_th = th.as_tensor(state_hist, device=self.device)
+        action_hist_th = th.as_tensor(action_hist, device=self.device)
+        next_state_th = None
+        if next_state is not None:
+            next_state_th = th.as_tensor(next_state, device=self.device)
+        done_th = None
+        if done is not None:
+            done_th = th.as_tensor(done, device=self.device)
+
+        del state_hist, action_hist, next_state, done  # unused
+
+        # preprocess
+        state_hist_th = preprocessing.preprocess_obs(
+            state_hist_th,
+            self.observation_space,
+            self.normalize_images,
         )
+        action_hist_th = preprocessing.preprocess_obs(
+            action_hist_th,
+            self.action_space,
+            self.normalize_images,
+        )
+        if next_state_th is not None:
+            next_state_th = preprocessing.preprocess_obs(
+                next_state_th,
+                self.observation_space,
+                self.normalize_images,
+            )
+        if done_th is not None:
+            done_th = done_th.to(th.float32)
+
+        n_gen = len(state_hist_th)
+        if next_state_th is not None:
+            assert state_hist_th.shape[2:] == next_state_th.shape[1:]
+        assert len(action_hist_th) == n_gen
+
+        return state_hist_th, action_hist_th, next_state_th, done_th
 
     def forward(
             self,
-            state: th.Tensor,
-            action: th.Tensor,
+            state_hist: th.Tensor,
+            action_hist: th.Tensor,
             next_state: th.Tensor,
             done: th.Tensor
     ) -> Tuple[th.Tensor, th.Tensor]:
         inputs = []
         if self.use_state:
-            inputs.append(th.flatten(state, 1))
-        if self.use_action:
-            inputs.append(th.flatten(action, 1))
-        if self.use_next_state:
-            inputs.append(th.flatten(next_state, 1))
-        if self.use_done:
-            inputs.append(th.reshape(done, [-1, 1]))
+            inputs.append(th.flatten(state_hist, 2))
+        if self.use_action:  # N.B. Default highway-env uses a discrete (one-hot) encoding.
+            inputs.append(th.flatten(action_hist, 2))
+        # if self.use_next_state:
+        #     inputs.append(th.flatten(next_state, 1))
+        # if self.use_done:
+        #     inputs.append(th.reshape(done, [-1, 1]))
 
-        inputs_concat = th.cat(inputs, dim=1)
+        inputs_concat = th.cat(inputs, dim=2)
+        # import IPython; IPython.embed()
 
-        mean = self._mean_net(inputs_concat)
-        log_std = self._log_std_net(inputs_concat)
-        return mean, log_std
+        _, (hidden, state) = self.encoder(inputs_concat)
+        if self.bidirectional or self.num_layers > 1:
+            # Flatten the hidden layer.
+            hidden = hidden.view(-1, self.hidden_size * self.hidden_factor)
+        else:
+            hidden = hidden.squeeze()
+        mean_z = self.hidden_to_mean(hidden)
+        log_std_z = self.hidden_to_logstd(hidden)
+        return mean_z, log_std_z
+
+    @property
+    def device(self) -> th.device:
+        """Heuristic to determine which device this module is on."""
+        try:
+            first_param = next(self.parameters())
+            return first_param.device
+        except StopIteration:
+            # if the model has no parameters, we use the CPU
+            return th.device("cpu")
 
 
 class PEMIRL(common.AdversarialTrainer):
@@ -150,6 +240,8 @@ class PEMIRL(common.AdversarialTrainer):
                 attribute (present in `ActorCriticPolicy`), needed to compute
                 log-probability of actions.
         """
+
+        # TODO(jon): Make sure these work for a discrete action space (highway-env's default).
         if reward_net is None:
             reward_net = reward_nets.BasicShapedRewardNet(
                 observation_space=venv.observation_space,
@@ -160,6 +252,8 @@ class PEMIRL(common.AdversarialTrainer):
             context_encoder_net = ContextEncoderNet(
                 observation_space=venv.observation_space,
                 action_space=venv.action_space,
+                traj_length=traj_length,
+                batch_size=demo_batch_size,
             )
         self._context_encoder_net = context_encoder_net
         print(self._reward_net.parameters())
@@ -219,14 +313,16 @@ class PEMIRL(common.AdversarialTrainer):
 
     def context_encoder_log_likelihood(
         self,
-        state: th.Tensor,
-        action: th.Tensor,
+        state_hist: th.Tensor,
+        action_hist: th.Tensor,
         next_state: th.Tensor,
         done: th.Tensor,
         context_id,
     ) -> Tuple[th.Tensor, th.Tensor]:
         # Note: We're inputting the expert trajectory.
-        mean_context, log_std_context = self._context_encoder_net(state, action, next_state, done)
+        mean_context, log_std_context = self._context_encoder_net(
+            state_hist, action_hist, next_state, done
+        )
 
         # Manually dump the context var info to stdout for quick insepection.
         max_count = 100
@@ -260,3 +356,11 @@ class PEMIRL(common.AdversarialTrainer):
             return self._reward_net.base
         else:
             return self._reward_net
+
+    @property
+    def context_encoder_train(self) -> th.nn.Module:
+        return self._context_encoder_net
+
+    @property
+    def context_encoder_test(self) -> th.nn.Module:
+        return self._context_encoder_net

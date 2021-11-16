@@ -329,6 +329,16 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
     def reward_test(self) -> reward_nets.RewardNet:
         """Reward used to train policy at "test" time after adversarial training."""
 
+    @property
+    @abc.abstractmethod
+    def context_encoder_train(self) -> th.nn.Module:
+        """Reward used to train generator policy."""
+
+    @property
+    @abc.abstractmethod
+    def context_encoder_test(self) -> th.nn.Module:
+        """Reward used to train policy at "test" time after adversarial training."""
+
     def set_demonstrations(
             self,
             demonstrations: base.AnyTransitions,
@@ -380,8 +390,8 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
 
             # import IPython; IPython.embed()
             log_q_m_tau, reparam_latent = self.context_encoder_log_likelihood(
-                batch["state"],
-                batch["action"],
+                batch["state_hist"],
+                batch["action_hist"],
                 batch["next_state"],
                 batch["done"],
                 batch["context_id"],
@@ -639,11 +649,20 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
         if self.traj_length is not None:
             obs = obs[:,-1]
             acts = acts[:,-1]
+
+
+        #####
+        # TODO(jon): Make sure this preprocessing correctly handles Discrete acts / obs !!!
+        #            Also, do implementation for state / action histories.
+        #####
         obs_th, acts_th, next_obs_th, dones_th = self.reward_train.preprocess(
             obs,
             acts,
             next_obs,
             dones,
+        )
+        obs_hist_th, acts_hist_th, _, _ = self.context_encoder_train.preprocess(
+            obs_hist, acts_hist
         )
         batch_dict = {
             "state_hist": obs_hist_th,

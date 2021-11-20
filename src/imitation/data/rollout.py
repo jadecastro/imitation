@@ -534,13 +534,18 @@ def make_fixed_length_transitions(
                 [sublist[j] for j in range(traj_length, len(sublist) - 1)]
             )
 
+    print(f" number of traj_length batches: {len(cat_parts['acts'])}")
+
     cat_rews = []
     if use_reward:
         for sublist in rews:
             cat_rews.extend(
                 [sublist[j] for j in range(traj_length, len(sublist) - 1)]
             )
-        cat_rews = np.stack(cat_rews)
+        try:
+            cat_rews = np.stack(cat_rews)
+        except:
+            import IPython; IPython.embed()
 
     cat_parts = {
         key: np.stack(part_list, axis=0) for key, part_list in cat_parts.items()

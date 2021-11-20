@@ -87,7 +87,7 @@ class ContextEncoderNet(th.nn.Module):
         self.encoder, self.hidden_to_mean, self.hidden_to_logstd = networks.build_gaussian_lstm(
             in_size=combined_size,
             hidden_size=self.hidden_size,
-            latent_size=2,
+            latent_size=1,
             num_layers=self.num_layers,
             bidirectional=self.bidirectional,
             flatten_input=False,
@@ -325,6 +325,11 @@ class PEMIRL(common.AdversarialTrainer):
         )
 
         # Manually dump the context var info to stdout for quick insepection.
+        log_data = dict(
+            mean_context=mean_context,
+            log_std_context=log_std_context,
+            context_id=context_id,
+        )
         max_count = 100
         count = 0
         for i, cid in enumerate(context_id):
@@ -344,7 +349,7 @@ class PEMIRL(common.AdversarialTrainer):
         normal_dist = Independent(normal_dist, 1)
         log_q_m_tau = normal_dist.log_prob(reparam_latent)
 
-        return log_q_m_tau, reparam_latent
+        return log_q_m_tau, reparam_latent, log_data
 
     @property
     def reward_train(self) -> reward_nets.RewardNet:

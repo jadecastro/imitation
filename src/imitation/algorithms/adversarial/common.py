@@ -23,6 +23,9 @@ def compute_train_stats(
     disc_logits_gen_is_high: th.Tensor,
     labels_gen_is_one: th.Tensor,
     disc_loss: th.Tensor,
+    mean_context: th.Tensor,
+    log_std_context: th.Tensor,
+    context_id: Iterator[float],
 ) -> Mapping[str, float]:
     """Train statistics for GAIL/AIRL discriminator.
 
@@ -258,7 +261,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
         )
 
         if loss_coeffs is None:
-            loss_coeffs = dict(info=1000.0)
+            loss_coeffs = dict(info=50000.0)
             print("loss_coeffs")
             print(loss_coeffs)
         self.loss_coeffs = loss_coeffs
@@ -389,7 +392,7 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
             )
 
             # import IPython; IPython.embed()
-            log_q_m_tau, reparam_latent = self.context_encoder_log_likelihood(
+            log_q_m_tau, reparam_latent, ce_log_data = self.context_encoder_log_likelihood(
                 batch["state_hist"],
                 batch["action_hist"],
                 batch["next_state"],
@@ -445,6 +448,9 @@ class AdversarialTrainer(base.DemonstrationAlgorithm[types.Transitions]):
                     disc_logits,
                     batch["labels_gen_is_one"],
                     loss,
+                    ce_log_data["mean_context"],
+                    ce_log_data["log_std_context"],
+                    ce_log_data["context_id"],
                 )
             self.logger.record("global_step", self._global_step)
             for k, v in train_stats.items():

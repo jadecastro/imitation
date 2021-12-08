@@ -330,6 +330,8 @@ class PEMIRL(common.AdversarialTrainer):
             log_std_context=log_std_context,
             context_id=context_id,
         )
+
+        # Quickly print some of the labels to inspect if we're on the right track.
         max_count = 100
         count = 0
         for i, cid in enumerate(context_id):

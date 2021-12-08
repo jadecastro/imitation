@@ -9,6 +9,7 @@ This can be used:
        as a way of evaluating the quality of the learned reward function.
 """
 
+from collections import namedtuple
 import logging
 import os
 import os.path as osp
@@ -26,6 +27,7 @@ from imitation.rewards.serialize import load_reward
 from imitation.scripts.common import common, rl, train
 from imitation.scripts.config.train_rl_multi import train_rl_multi_ex
 
+Rewards = namedtuple("Rewards", ["coll", "speed"])
 
 # Reward weights and config settings corresponding to the `highway-fast` env. 
 DEFAULT_ENV_CONFIG = dict(
@@ -103,18 +105,31 @@ def train_rl_multi(
     os.makedirs(rollout_dir, exist_ok=True)
     os.makedirs(policy_dir, exist_ok=True)
 
+    # ===== Rewards ======
     # TODO(jon): make this a parameter.
-    coll_rewards = [-1., 0.]  # N.B. `collision_reward` is only defined on the range [-1, 0].
+    # index 0: "sane" driver
+    # index 1: "bumper-car" driver
+    coll_rewards = [-1., 0.]  # N.B. in highway-env, `collision_reward` is only defined
+                              # on the range [-1, 0].
+    # index 0: "slower" driver
+    # index 1: "speed-demon" driver
+    speed_rewards = [0.1, 1.]
+
+    rewards_list = [Rewards(cr, sr) for cr in coll_rewards for sr in speed_rewards]
 
     rollout_stats = []
     rl_algos = []
-    for it, cr in enumerate(coll_rewards):
+    index = 0
+    for it, rew in enumerate(rewards_list):
         print("======================")
         print("  Processing iter: {}".format(it))
+        print("      Rewards: {}".format(rew))
         print("======================")
 
         env_config_kwargs = DEFAULT_ENV_CONFIG
-        env_config_kwargs["collision_reward"] = cr
+        print(rew)
+        env_config_kwargs["collision_reward"] = rew.coll
+        env_config_kwargs["high_speed_reward"] = rew.speed
 
         venv = common.make_venv(
             post_wrappers=[lambda env, idx: wrappers.RolloutInfoWrapper(env)],
@@ -139,7 +154,7 @@ def train_rl_multi(
                 save_policy_callback,
             )
             callback_objs.append(save_policy_callback)
-        callback = callbacks.CallbackList(callback_objs)
+            callback = callbacks.CallbackList(callback_objs)
 
         rl_algo = rl.make_rl_algo(venv)
         rl_algo.set_logger(custom_logger)
